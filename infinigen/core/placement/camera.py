@@ -732,6 +732,20 @@ def save_camera_parameters(camera_ids, output_folder, frame, use_dof=False):
         np.savez(output_file, K=np.asarray(K, dtype=np.float64), T=T, HW=height_width)
 
 
+def load_cameras(camera_rigs, camera_filepath):
+    print(camera_rigs)
+    with open(camera_filepath, "r") as f:
+        while True:
+            line = f.readline().rstrip("\n")
+            if line == "": break
+            if "," in line:
+                data = [float(x) for x in line.split(",")]
+                t, loc, rot = data[0], data[1:4], data[4: 7]
+                animation_policy.keyframe(rig, loc, rot, t)
+            else:
+                rig = [rig for rig in camera_rigs if rig.name == line][0]
+            
+
 if __name__ == "__main__":
     """
     This interactive section generates a depth map by raycasting through each pixel. 

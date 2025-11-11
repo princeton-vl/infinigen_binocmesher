@@ -19,66 +19,67 @@ type = SurfaceTypes.SDFPerturb
 mod_name = "geo_cobblestone"
 name = "cobble_stone"
 
-
+@gin.configurable
 def shader_cobblestone(nw: NodeWrangler, random_seed=0):
     # Code generated using version 2.4.3 of the node_transpiler, and modified
-    nw.force_input_consistency()
-    stone_color = geo_cobblestone(nw, random_seed=random_seed, geometry=False)
-    noise_texture = nw.new_node(
-        Nodes.NoiseTexture,
-        input_kwargs={
-            "Vector": nw.new_node("ShaderNodeNewGeometry"),
-            "Scale": N(10, 1.5) / 25,
-            "W": U(-5, 5),
-        },
-        attrs={"noise_dimensions": "4D"},
-    )
+    with FixedSeed(random_seed):
+        nw.force_input_consistency()
+        stone_color = geo_cobblestone(nw, random_seed=random_seed, geometry=False)
+        noise_texture = nw.new_node(
+            Nodes.NoiseTexture,
+            input_kwargs={
+                "Vector": nw.new_node("ShaderNodeNewGeometry"),
+                "Scale": N(10, 1.5) / 25,
+                "W": U(-5, 5),
+            },
+            attrs={"noise_dimensions": "4D"},
+        )
 
-    colorramp_1 = nw.new_node(
-        Nodes.ColorRamp, input_kwargs={"Fac": noise_texture.outputs["Fac"]}
-    )
-    colorramp_1.color_ramp.elements[0].position = 0.0
-    colorramp_1.color_ramp.elements[0].color = random_color_neighbour(
-        (0.014, 0.013, 0.014, 1.0), 0.2, 0.1, 0.1
-    )
-    colorramp_1.color_ramp.elements[1].position = 1.0
-    colorramp_1.color_ramp.elements[1].color = random_color_neighbour(
-        (0.047, 0.068, 0.069, 1.0), 0.2, 0.1, 0.1
-    )
+        colorramp_1 = nw.new_node(
+            Nodes.ColorRamp, input_kwargs={"Fac": noise_texture.outputs["Fac"]}
+        )
+        colorramp_1.color_ramp.elements[0].position = 0.0
+        colorramp_1.color_ramp.elements[0].color = random_color_neighbour(
+            (0.014, 0.013, 0.014, 1.0), 0.2, 0.1, 0.1
+        )
+        colorramp_1.color_ramp.elements[1].position = 1.0
+        colorramp_1.color_ramp.elements[1].color = random_color_neighbour(
+            (0.047, 0.068, 0.069, 1.0), 0.2, 0.1, 0.1
+        )
 
-    mix = nw.new_node(
-        Nodes.MixRGB,
-        input_kwargs={
-            "Fac": stone_color.outputs["Color"],
-            "Color1": (0.0, 0.0, 0.0, 1.0),
-            "Color2": colorramp_1.outputs["Color"],
-        },
-    )
+        mix = nw.new_node(
+            Nodes.MixRGB,
+            input_kwargs={
+                "Fac": stone_color.outputs["Color"],
+                "Color1": (0.0, 0.0, 0.0, 1.0),
+                "Color2": colorramp_1.outputs["Color"],
+            },
+        )
 
-    roughness_low = N(0.25, 0.05)
-    roughness_high = N(0.75, 0.05)
-    colorramp = nw.new_node(
-        Nodes.ColorRamp, input_kwargs={"Fac": stone_color.outputs["Color"]}
-    )
-    colorramp.color_ramp.elements[0].position = 0.0
-    colorramp.color_ramp.elements[0].color = (
-        roughness_high,
-        roughness_high,
-        roughness_high,
-        1.0,
-    )
-    colorramp.color_ramp.elements[1].position = 1.0
-    colorramp.color_ramp.elements[1].color = (
-        roughness_low,
-        roughness_low,
-        roughness_low,
-        1.0,
-    )
+        roughness_low = N(0.25, 0.05)
+        roughness_high = N(0.75, 0.05)
+        colorramp = nw.new_node(
+            Nodes.ColorRamp, input_kwargs={"Fac": stone_color.outputs["Color"]}
+        )
+        colorramp.color_ramp.elements[0].position = 0.0
+        colorramp.color_ramp.elements[0].color = (
+            roughness_high,
+            roughness_high,
+            roughness_high,
+            1.0,
+        )
+        colorramp.color_ramp.elements[1].position = 1.0
+        colorramp.color_ramp.elements[1].color = (
+            roughness_low,
+            roughness_low,
+            roughness_low,
+            1.0,
+        )
 
-    principled_bsdf = nw.new_node(
-        Nodes.PrincipledBSDF,
-        input_kwargs={"Base Color": mix, "Roughness": colorramp.outputs["Color"]},
-    )
+        principled_bsdf = nw.new_node(
+            Nodes.PrincipledBSDF,
+            input_kwargs={"Base Color": mix, "Roughness": colorramp.outputs["Color"]},
+        )
 
     return principled_bsdf
 

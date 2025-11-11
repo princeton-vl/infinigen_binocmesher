@@ -357,6 +357,7 @@ def render_image(
     for exclude in excludes:
         bpy.data.objects[exclude].hide_render = True
 
+    init.configure_render_cycles()
     init.configure_cycles_devices()
 
     tmp_dir = frames_folder.parent.resolve() / "tmp"

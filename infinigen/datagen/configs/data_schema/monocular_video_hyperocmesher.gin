@@ -1,0 +1,17 @@
+iterate_scene_tasks.frame_range = [1, 480]
+iterate_scene_tasks.view_block_size = 480
+iterate_scene_tasks.cam_block_size = 1
+iterate_scene_tasks.cam_id_ranges = [1, 1]
+
+iterate_scene_tasks.global_tasks = [
+    {'name': 'coarse', 'func': @queue_coarse}, 
+    {'name': "populate", 'func': @queue_populate},
+    {'name': "fineterrain", 'func': @queue_fine_terrain},
+]
+iterate_scene_tasks.view_dependent_tasks = []
+iterate_scene_tasks.camera_dependent_tasks = [
+    {'name': 'shortrender', 'func': @rendershort/queue_render}, 
+    {'name': 'blendergt', 'func': @ground_truth/queue_render}, 
+]
+
+queue_populate.input_prefix = "coarse"

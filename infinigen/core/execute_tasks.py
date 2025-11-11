@@ -277,11 +277,10 @@ def execute_tasks(
     group_collections()
 
     if input_folder is not None and input_folder != output_folder:
-        for mesh in os.listdir(input_folder):
-            if (
-                mesh.endswith(".glb") or mesh.endswith(".b_displacement.npy")
-            ) and not os.path.islink(output_folder / mesh):
-                os.symlink(input_folder / mesh, output_folder / mesh)
+        for file in os.listdir(input_folder):
+            to_be_link = file.endswith(".glb") or file.endswith(".b_displacement.npy") or file == "mesher_backend.txt" or file == "HyperMesh"
+            if to_be_link and not os.path.islink(output_folder / file):
+                os.symlink(input_folder / file, output_folder / file)
     if Task.Coarse in task or Task.Populate in task or Task.FineTerrain in task:
         with Timer("Writing output blendfile"):
             logging.info(
@@ -310,13 +309,32 @@ def execute_tasks(
     if need_terrain_processing and (
         Task.Render in task or Task.GroundTruth in task or Task.MeshSave in task or Task.Export in task
     ):
-        terrain = Terrain(
-            scene_seed,
-            surface.registry,
-            task=task,
-            on_the_fly_asset_folder=output_folder / "assets",
-        )
-        if optimize_terrain_diskusage:
+        with open(output_folder / "mesher_backend.txt", "r") as f:
+            mesher_backend, fs, fe = f.readlines()
+            mesher_backend = mesher_backend.replace('\n', '')
+            fs, fe = int(fs), int(fe)
+        if mesher_backend == "BinocMesher" or optimize_terrain_diskusage:
+            terrain = Terrain(
+                scene_seed,
+                surface.registry,
+                task=task,
+                on_the_fly_asset_folder=output_folder / "assets",
+            )
+        if mesher_backend == "BinocMesher":
+            mesh_names = terrain.get_mesh_names()
+            print(mesh_names)
+            for mesh_name in mesh_names:
+                if mesh_name + "_fine" in bpy.data.objects.keys():
+                    butil.delete(bpy.data.objects[mesh_name + "_fine"])
+            cameras = [cam_util.get_camera(i, j) for i, j in cam_util.get_cameras_ids()]
+            terrain.fine_terrain(
+                output_folder,
+                mesher_backend=mesher_backend,
+                cameras=cameras,
+                optimize_terrain_diskusage=False,
+                fs=fs, fe=fe,
+            )
+        elif optimize_terrain_diskusage:
             terrain.load_glb(output_folder)
 
     if Task.Render in task or Task.GroundTruth in task:

@@ -21,12 +21,44 @@ type = SurfaceTypes.SDFPerturb
 mod_name = "geo_stone"
 name = "stone"
 
-
-def shader_stone(nw, random_seed=0):
+@gin.configurable
+def shader_stone(nw, random_seed=0, instance_color=False):
     nw.force_input_consistency()
     stone_base_color, stone_roughness = geo_stone(
         nw, random_seed=random_seed, geometry=False
     )
+
+    if instance_color:
+        attribute = nw.new_node(
+            Nodes.Attribute, attrs={"attribute_name": "instance_id"}
+        )
+        voronoi = nw.new_node(
+            Nodes.VoronoiTexture, [attribute], input_kwargs={"Scale": 100}
+        )
+        mod_res = nw.new_node(
+            Nodes.Math,
+            [attribute, 5],
+            attrs={"operation": "MODULO"},
+        )
+        fac = nw.scalar_add(
+            0.05,
+            nw.scalar_multiply(
+                0.95,
+                nw.new_node(
+                    Nodes.Math,
+                    [mod_res, 0],
+                    attrs={"operation": "COMPARE"},
+                )
+            )
+        )
+        stone_base_color = nw.new_node(
+            Nodes.MixRGB,
+            input_kwargs={
+                "Fac": 0.05,
+                "Color1": stone_base_color,
+                "Color2": voronoi.outputs["Color"],
+            },
+        )
 
     principled_bsdf = nw.new_node(
         Nodes.PrincipledBSDF,

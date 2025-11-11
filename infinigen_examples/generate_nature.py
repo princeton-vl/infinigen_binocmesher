@@ -21,6 +21,50 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
+import bmesh
+def extract_region_as_mesh(src_obj, center_world, radius, new_obj_name):
+    bm_src = bmesh.new()
+    bm_src.from_mesh(src_obj.data)
+    bm_src.verts.ensure_lookup_table()
+    bm_src.faces.ensure_lookup_table()
+
+    bm_dst = bmesh.new()
+    old2new = {}
+
+    center_world = Vector(center_world)
+
+    for v in bm_src.verts:
+        world_co = src_obj.matrix_world @ v.co
+        if (world_co - center_world).length <= radius:
+            new_v = bm_dst.verts.new(v.co.copy())
+            old2new[v.index] = new_v
+
+    bm_dst.verts.ensure_lookup_table()
+
+    for f in bm_src.faces:
+        if all(v.index in old2new for v in f.verts):
+            bm_dst.faces.new([old2new[v.index] for v in f.verts])
+
+    new_mesh = bpy.data.meshes.new(f"{new_obj_name}_Mesh")
+    bm_dst.to_mesh(new_mesh)
+    bm_dst.free()
+
+    new_obj = bpy.data.objects.new(new_obj_name, new_mesh)
+    new_obj.matrix_world = src_obj.matrix_world.copy()
+
+    bpy.context.collection.objects.link(new_obj)
+    bpy.context.view_layer.objects.active = new_obj
+    new_obj.select_set(True)
+
+    new_mesh.polygons.foreach_set("use_smooth", [True] * len(new_mesh.polygons))
+    new_mesh.normals_split_custom_set_from_vertices(
+        [v.normal for v in new_mesh.vertices]
+    )
+    new_mesh.validate(clean_customdata=False)
+
+    return new_obj
+
+
 # unused imports required for gin to find modules currently, # TODO remove
 # ruff: noqa: F401
 from infinigen.assets import fluid, lighting, weather
@@ -95,6 +139,10 @@ logger = logging.getLogger(__name__)
 @gin.configurable
 def compose_nature(output_folder, scene_seed, **params):
     p = pipeline.RandomStageExecutor(scene_seed, output_folder, params)
+    if params.get("load_cameras", None) is not None:
+        params["pose_cameras_enabled"] = False
+    elif not params.get("pose_cameras_enabled", True):
+        params["animate_cameras_enabled"] = False
 
     def add_coarse_terrain():
         terrain = Terrain(
@@ -294,21 +342,13 @@ def compose_nature(output_folder, scene_seed, **params):
 
     p.run_stage("lighting", lighting.sky_lighting.add_lighting, cam, use_chance=False)
 
-    # determine a small area of the terrain for the creatures to run around on
-    # must happen before camera is animated, as camera may want to follow them around
-    terrain_center, *_ = split_in_view.split_inview(
-        terrain_mesh,
-        cam=cam,
-        start=0,
-        end=0,
-        outofview=False,
-        vis_margin=5,
-        dist_max=params["center_distance"],
-        hide_render=True,
-        suffix="center",
-    )
-    deps = bpy.context.evaluated_depsgraph_get()
-    mathutils.bvhtree.BVHTree.FromObject(terrain_center, deps)
+
+    if params.get("manual_terrain_center"):
+        terrain_center = extract_region_as_mesh(terrain_mesh, params["manual_terrain_center"][0], params["manual_terrain_center"][1], "OpaqueTerrain.inview_center")
+        deps = bpy.context.evaluated_depsgraph_get()
+        mathutils.bvhtree.BVHTree.FromObject(terrain_center, deps)
+    else:
+        terrain_center = None
 
     pois = []  # objects / points of interest, for the camera to look at
 
@@ -316,19 +356,12 @@ def compose_nature(output_folder, scene_seed, **params):
         fac_class = sample_registry(params["ground_creature_registry"])
         fac = fac_class(int_hash((scene_seed, 0)), bvh=scene_bvh, animation_mode="idle")
         n = params.get("max_ground_creatures", randint(1, 4))
-        selection = (
-            density.placement_mask(
-                select_thresh=0, tag="beach", altitude_range=(-0.5, 0.5)
-            )
-            if fac_class is creatures.CrabFactory
-            else 1
-        )
         col = placement.scatter_placeholders_mesh(
             target,
             fac,
             num_placeholders=n,
             overall_density=1,
-            selection=selection,
+            selection=1,
             altitude=0.2,
         )
         return list(col.objects)
@@ -349,7 +382,10 @@ def compose_nature(output_folder, scene_seed, **params):
     pois += p.run_stage("flying_creatures", flying_creatures, default=[])
 
     def animate_cameras():
-        cam_util.animate_cameras(camera_rigs, bbox, scene_preprocessed, pois=pois)
+        if params.get("load_cameras", None) is not None:
+            cam_util.load_cameras(camera_rigs, params.get("load_cameras", None))
+        else:
+            cam_util.animate_cameras(camera_rigs, bbox, scene_preprocessed, pois=pois)
 
         frames_folder = output_folder.parent / "frames"
         animated_cams = [cam for cam in camera_rigs if cam.animation_data is not None]
@@ -361,46 +397,12 @@ def compose_nature(output_folder, scene_seed, **params):
         use_chance=False,
     )
 
-    with logging_util.Timer("Compute coarse terrain frustrums"):
-        terrain_inview, *_ = split_in_view.split_inview(
-            terrain_mesh,
-            verbose=True,
-            outofview=False,
-            print_areas=True,
-            cam=cam,
-            vis_margin=2,
-            dist_max=params["inview_distance"],
-            hide_render=True,
-            suffix="inview",
-        )
-        terrain_near, *_ = split_in_view.split_inview(
-            terrain_mesh,
-            verbose=True,
-            outofview=False,
-            print_areas=True,
-            cam=cam,
-            vis_margin=2,
-            dist_max=params["near_distance"],
-            hide_render=True,
-            suffix="near",
-        )
+    if params.get("camera_lighting", False):
+        lighting.sky_lighting.add_camera_based_lighting(cam_util.get_camera(0, 0))
 
-        collider = butil.modify_mesh(
-            butil.deep_clone_obj(terrain_near),
-            "COLLISION",
-            apply=False,
-            show_viewport=True,
-        )
-        collider.name = collider.name + ".collider"
-        collider.collision.use_culling = False
-        collider_col = butil.get_collection("colliders")
-        butil.put_in_collection(collider, collider_col)
-
-        butil.modify_mesh(terrain_near, "SUBSURF", levels=2, apply=True)
-
-        deps = bpy.context.evaluated_depsgraph_get()
-        terrain_inview_bvh = mathutils.bvhtree.BVHTree.FromObject(terrain_inview, deps)
-
+    terrain_inview = None
+    terrain_near = None
+    
     p.run_stage("caustics", lambda: lighting.caustics_lamp.add_caustics(terrain_near))
 
     def add_fish_school():
@@ -608,7 +610,8 @@ def compose_nature(output_folder, scene_seed, **params):
     p.run_stage(
         "seashells",
         lambda: seashells.apply(
-            terrain_near,
+            terrain_center,
+            density=50,
             selection=density.placement_mask(
                 scale=0.05, select_thresh=0.5, tag="landscape,", return_scalar=True
             ),
@@ -724,6 +727,9 @@ def compose_nature(output_folder, scene_seed, **params):
     p.run_stage("tilted_river", add_tilted_river, use_chance=False)
 
     p.save_results(output_folder / "pipeline_coarse.csv")
+    
+    bpy.context.scene.frame_set(bpy.context.scene.frame_start)
+    
     return {
         "height_offset": 0,
         "whole_bbox": None,

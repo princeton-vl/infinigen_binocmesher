@@ -263,6 +263,7 @@ def queue_fine_terrain(
     configs,
     gpus=0,
     taskname=None,
+    exclude_nodes=[],
     exclude_gpus=[],
     overrides=[],
     input_indices=None,
@@ -298,12 +299,14 @@ def queue_fine_terrain(
     with (folder / "run_pipeline.sh").open("a") as f:
         f.write(f"{' '.join(' '.join(cmd).split())}\n\n")
 
+    slurm_exclude = list(set(nodes_with_gpus(*exclude_gpus) + exclude_nodes))
+
     res = submit_cmd(
         cmd,
         folder=folder,
         name=name,
         gpus=gpus,
-        slurm_exclude=nodes_with_gpus(*exclude_gpus),
+        slurm_exclude=slurm_exclude,
         **kwargs,
     )
     return res, output_folder
@@ -378,7 +381,9 @@ def queue_render(
     configs,
     taskname=None,
     overrides=[],
+    exclude_nodes=[],
     exclude_gpus=[],
+    gpus=0,
     input_indices=None,
     output_indices=None,
     **submit_kwargs,
@@ -403,7 +408,9 @@ def queue_render(
         logger.warning(
             f"No scene.blend found in {input_folder} for any of {input_folder_priority_options}"
         )
-
+    
+    enable_gpu_in_terrain = "Terrain.device='cuda'" if gpus > 0 else ""
+    disable_attribute_in_gt = "fine_terrain.write_attribute_enabled=False" if gpus==0 else ""
     cmd = (
         get_cmd(
             seed,
@@ -416,6 +423,8 @@ def queue_render(
         + f"""
         render.render_image_func=@{render_type}/render_image
         LOG_DIR='{folder / "logs"}'
+        {enable_gpu_in_terrain}
+        {disable_attribute_in_gt}
     """.split("\n")
         + overrides
     )
@@ -423,11 +432,14 @@ def queue_render(
     with (folder / "run_pipeline.sh").open("a") as f:
         f.write(f"{' '.join(' '.join(cmd).split())}\n\n")
 
+    slurm_exclude = list(set(nodes_with_gpus(*exclude_gpus) + exclude_nodes))
+
     res = submit_cmd(
         cmd,
         folder=folder,
         name=name,
-        slurm_exclude=nodes_with_gpus(*exclude_gpus),
+        slurm_exclude=slurm_exclude,
+        gpus=gpus,
         **submit_kwargs,
     )
     return res, output_folder

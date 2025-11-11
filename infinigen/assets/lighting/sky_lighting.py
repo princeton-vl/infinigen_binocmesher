@@ -25,6 +25,7 @@ def nishita_lighting(
     strength=("uniform", 0.18, 0.22),
     sun_intensity=("uniform", 0.8, 1),
     sun_elevation=("spherical_sample", 10, None),
+    sun_rotation=None,
     dynamic=False,
     rising_angle=90,
     camera_based_rotation=None,
@@ -34,7 +35,9 @@ def nishita_lighting(
     sky_texture.sun_size = np.deg2rad(clip_gaussian(0.5, 0.3, 0.25, 5))
     sky_texture.sun_intensity = rg(sun_intensity)
     sky_texture.sun_elevation = np.radians(rg(sun_elevation))
-    if camera_based_rotation is None:
+    if sun_rotation is not None:
+        sky_texture.sun_rotation = np.radians(rg(sun_rotation))
+    elif camera_based_rotation is None:
         sky_texture.sun_rotation = np.random.uniform(0, 2 * math.pi)
     else:
         sky_texture.sun_rotation = (
@@ -43,31 +46,13 @@ def nishita_lighting(
             + np.radians(camera_based_rotation)
         )
     if dynamic:
-        sky_texture.sun_rotation += (
-            (sky_texture.sun_elevation + np.radians(8))
-            / 2
-            * np.arctan(np.radians(rising_angle))
-        )
-        sky_texture.keyframe_insert(
-            data_path="sun_rotation", frame=bpy.context.scene.frame_end
-        )
-        sky_texture.sun_rotation -= (
-            sky_texture.sun_elevation + np.radians(8)
-        ) * np.arctan(np.radians(rising_angle))
-        sky_texture.keyframe_insert(
-            data_path="sun_rotation", frame=bpy.context.scene.frame_start
-        )
-
-        sky_texture.keyframe_insert(
-            data_path="sun_elevation", frame=bpy.context.scene.frame_end
-        )
-        sky_texture.sun_elevation = -np.radians(8)
+        sky_texture.sun_elevation = np.radians(5)
         sky_texture.keyframe_insert(
             data_path="sun_elevation", frame=bpy.context.scene.frame_start
         )
         sky_texture.sun_elevation = -np.radians(5)
         sky_texture.keyframe_insert(
-            data_path="sun_elevation", frame=bpy.context.scene.frame_start + 10
+            data_path="sun_elevation", frame=bpy.context.scene.frame_end
         )
 
     sky_texture.altitude = clip_gaussian(100, 400, 0, 2000)
@@ -97,13 +82,15 @@ def add_lighting(cam=None):
 
 @gin.configurable
 def add_camera_based_lighting(
-    energy=("log_uniform", 200, 500), spot_size=("uniform", np.pi / 6, np.pi / 4)
+    camera,
+    energy=("log_uniform", 200, 500), spot_size=("uniform", np.pi / 6, np.pi / 4),
 ):
-    camera = bpy.context.scene.camera
     bpy.ops.object.light_add(
-        type="SPOT", location=camera.location, rotation=camera.rotation_euler
+        type="SPOT",
     )
     spot = bpy.context.active_object
     spot.data.energy = rg(energy)
     spot.data.spot_size = rg(spot_size)
     spot.data.spot_blend = uniform(0.6, 0.8)
+    spot.parent = camera
+    spot.parent_type = 'OBJECT'

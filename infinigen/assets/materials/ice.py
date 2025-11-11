@@ -29,7 +29,7 @@ def shader_ice(nw: NodeWrangler):
             "Vector": geometry.outputs["Position"],
             "W": noise_value,
             "Scale": 4.0000,
-            "Detail": 15.0000,
+            "Detail": 13.0000,
         },
         attrs={"noise_dimensions": "4D"},
     )
@@ -43,23 +43,36 @@ def shader_ice(nw: NodeWrangler):
     color_ramp.color_ramp.elements[1].color = [1.0000, 1.0000, 1.0000, 1.0000]
 
     col_ice = random_color_neighbour((0.6469, 0.6947, 0.9522, 1.0000), 0.05, 0.1, 0.1)
-    principled_bsdf = nw.new_node(
-        Nodes.PrincipledBSDF,
+
+    principled_bsdfs = []
+    radii = [0.1, 0.0001]
+    for radius in radii:
+        principled_bsdfs.append(nw.new_node(
+            Nodes.PrincipledBSDF,
+            input_kwargs={
+                "Subsurface": 1.0000,
+                "Subsurface Radius": (radius, radius, radius*2),
+                "Subsurface Color": tuple(col_ice),
+                "Roughness": color_ramp.outputs["Color"],
+                "IOR": 1.3100,
+            },
+        ))
+
+    mix_shader = nw.new_node(
+        Nodes.MixShader,
         input_kwargs={
-            "Subsurface": 1.0000,
-            "Subsurface Radius": (0.0010, 0.0010, 0.0020),
-            "Subsurface Color": tuple(col_ice),
-            "Roughness": color_ramp.outputs["Color"],
-            "IOR": 1.3100,
+            "Fac": 0.5,
+            1: principled_bsdfs[0],
+            2: principled_bsdfs[1],
         },
     )
 
     material_output = nw.new_node(
         Nodes.MaterialOutput,
-        input_kwargs={"Surface": principled_bsdf},
+        input_kwargs={"Surface": mix_shader},
         attrs={"is_active_output": True},
     )
-    return principled_bsdf
+    return mix_shader
 
 
 @gin.configurable
@@ -80,7 +93,7 @@ def geo_ice(nw: NodeWrangler, random_seed=0, selection=None):
                 "Vector": position_1,
                 "W": nw.new_value(uniform(0, 10), "W1"),
                 "Scale": nw.new_value(uniform(7, 9), "Scale1"),
-                "Detail": 20.0000,
+                "Detail": 13.0000,
                 "Roughness": 1.0000,
             },
             attrs={"noise_dimensions": "4D"},
@@ -96,7 +109,7 @@ def geo_ice(nw: NodeWrangler, random_seed=0, selection=None):
 
         scale = nw.new_node(
             Nodes.VectorMath,
-            input_kwargs={0: colorramp.outputs["Color"], "Scale": 0.0300},
+            input_kwargs={0: colorramp.outputs["Color"], "Scale": 0.0},
             attrs={"operation": "SCALE"},
         )
 
@@ -110,7 +123,7 @@ def geo_ice(nw: NodeWrangler, random_seed=0, selection=None):
                 "Vector": position_2,
                 "W": nw.new_value(uniform(0, 10), "W2"),
                 "Scale": nw.new_value(uniform(1.3, 1.7), "Scale2"),
-                "Detail": 15.0000,
+                "Detail": 13.0000,
                 "Roughness": 0.7000,
                 "Distortion": 1.5000,
             },
@@ -125,7 +138,7 @@ def geo_ice(nw: NodeWrangler, random_seed=0, selection=None):
 
         scale_1 = nw.new_node(
             Nodes.VectorMath,
-            input_kwargs={0: multiply.outputs["Vector"], "Scale": 0.0800},
+            input_kwargs={0: multiply.outputs["Vector"], "Scale": 0.08},
             attrs={"operation": "SCALE"},
         )
 

@@ -22,7 +22,6 @@ classifiers = [
 
 requires-python = "==3.10.*"
 dependencies = [
-    "bpy==3.6.0",
     "frozendict", # TODO remove
     "geomdl", # used only for creatures
     "gin_config>=0.5.0",

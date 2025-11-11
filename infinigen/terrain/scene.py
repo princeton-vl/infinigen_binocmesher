@@ -16,6 +16,9 @@ from infinigen.terrain.elements.upsidedown_mountains import UpsidedownMountains
 from infinigen.terrain.elements.voronoi_rocks import VoronoiGrains, VoronoiRocks
 from infinigen.terrain.elements.warped_rocks import WarpedRocks
 from infinigen.terrain.elements.waterbody import Waterbody
+from infinigen.terrain.elements.sdf_trees import SdfTrees
+from infinigen.terrain.elements.sdf_city import SdfCity
+from infinigen.terrain.elements.sdf_citywindow import SdfCityWindow
 from infinigen.terrain.utils import chance
 
 
@@ -35,6 +38,8 @@ def scene(
     waterbody_chance=0.5,
     volcanos_chance=0,
     ground_ice_chance=0,
+    sdf_trees_chance=0,
+    sdf_city_chance=0,
 ):
     elements = {}
     scene_infos = {}
@@ -61,6 +66,19 @@ def scene(
                 device, caves, on_the_fly_asset_folder, reused_asset_folder
             )
             last_ground_element = elements[ElementNames.LandTiles]
+        with FixedSeed(int_hash([seed, "sdf_trees"])):
+            if chance(sdf_trees_chance):
+                elements[ElementNames.SdfTrees] = SdfTrees(
+                    device, last_ground_element,
+                )
+        with FixedSeed(int_hash([seed, "sdf_city"])):
+            if chance(sdf_city_chance):
+                elements[ElementNames.SdfCity] = SdfCity(
+                    device, last_ground_element,
+                )
+                elements[ElementNames.SdfCityWindow] = SdfCityWindow(
+                    device, last_ground_element, elements[ElementNames.SdfCity],
+                )
 
     assert last_ground_element is not None
 

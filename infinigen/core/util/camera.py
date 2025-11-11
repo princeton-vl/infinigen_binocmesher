@@ -9,6 +9,7 @@ import bpy_extras
 import numpy as np
 from mathutils import Matrix, Vector
 from tqdm import trange
+from mathutils import Euler
 
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import dehomogenize, homogenize
@@ -111,6 +112,17 @@ def get_3x4_RT_matrix_from_blender(cam):
     )
     return RT
 
+def get_3x4_RT_matrix_from_pos_rot(pos, rot):
+    coords_trans_matrix = np.array(
+        [[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]]
+    )
+    cam_pose = np.zeros((4, 4), dtype=np.float32)
+    cam_pose[:3, :3] = np.array(rot.to_matrix())
+    cam_pose[:3, 3] = pos
+    cam_pose[3, 3] = 1
+    cam_pose = np.dot(np.array(cam_pose), coords_trans_matrix)
+    return Matrix(np.linalg.inv(cam_pose)[:3])
+
 
 def get_3x4_P_matrix_from_blender(cam):
     K = get_calibration_matrix_K_from_blender(cam.data)
@@ -133,8 +145,8 @@ def project_by_object_utils(cam, point):
     return Vector((co_2d.x * render_size[0], render_size[1] - co_2d.y * render_size[1]))
 
 
-def compute_vis_dists(points, cam):
-    projmat, K, RT = map(np.array, get_3x4_P_matrix_from_blender(cam))
+def compute_vis_dists(points, P_matrix):
+    projmat, K, RT = map(np.array, P_matrix)
     proj = points @ projmat.T
     uv, d = dehomogenize(proj), proj[:, -1]
 
@@ -167,8 +179,15 @@ def min_dists_from_cam_trajectory(points, cam, start=None, end=None, verbose=Fal
 
     rangeiter = trange if verbose else range
     for i in rangeiter(start, end + 1):
-        bpy.context.scene.frame_set(i)
-        dists, vis_dists = compute_vis_dists(points, cam)
+        if cam.parent.animation_data is not None:
+            ev = [cam.parent.animation_data.action.fcurves[i].evaluate(i) for i in range(6)]
+            pos, rot = ev[:3], Euler(ev[3:], "XYZ")
+        else:
+            pos, rot = cam.parent.location, Euler(cam.parent.rotation_euler, "XYZ")
+        K = get_calibration_matrix_K_from_blender(cam.data)
+        RT = get_3x4_RT_matrix_from_pos_rot(pos, rot)
+        P_matrix = K @ RT, K, RT
+        dists, vis_dists = compute_vis_dists(points, P_matrix)
         min_dists = np.minimum(dists, min_dists)
         min_vis_dists = np.minimum(vis_dists, min_vis_dists)
 

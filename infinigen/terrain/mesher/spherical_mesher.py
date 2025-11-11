@@ -41,7 +41,7 @@ class SphericalMesher:
         self,
         cameras,
         bounds,
-        r_min=1,
+        r_min=0.1,
         complete_depth_test=True,
     ):
         full_info, self.cam_pose, self.fov, self.H, self.W, _ = get_caminfo(cameras)

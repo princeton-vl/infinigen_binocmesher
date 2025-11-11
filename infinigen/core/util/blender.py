@@ -282,6 +282,7 @@ def delete(objs: bpy.types.Object | list[bpy.types.Object]):
         objs = [objs]
     select_none()
     for obj in objs:
+        obj.hide_viewport = False
         select(obj)
         is_mesh = obj.type == "MESH"
         if is_mesh:

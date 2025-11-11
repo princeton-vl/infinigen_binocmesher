@@ -8,6 +8,7 @@ import bpy
 import gin
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from mathutils import Euler
 
 
 def getK(fov, H, W):
@@ -51,21 +52,29 @@ def get_expanded_fov(cam_pose0, cam_poses, fov):
 
 
 @gin.configurable
-def get_caminfo(cameras, relax=1.05):
+def get_caminfo(cameras, relax=1.05, fs=None, fe=None):
     cam_poses = []
     fovs = []
     Ks = []
     Hs = []
     Ws = []
+    Ts = []
     coords_trans_matrix = np.array(
         [[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]]
     )
-    fs, fe = bpy.context.scene.frame_start, bpy.context.scene.frame_end
-    fc = bpy.context.scene.frame_current
+    if fs is None:
+        fs, fe = bpy.context.scene.frame_start, bpy.context.scene.frame_end
     for f in range(fs, fe + 1):
-        bpy.context.scene.frame_set(f)
         for c in cameras:
-            cam_pose = np.array(c.matrix_world)
+            if c.parent.animation_data is not None:
+                ev = [c.parent.animation_data.action.fcurves[i].evaluate(f) for i in range(6)]
+                pos, rot = ev[:3], Euler(ev[3:], "XYZ")
+            else:
+                pos, rot = c.parent.location, Euler(c.parent.rotation_euler, "XYZ")
+            cam_pose = np.zeros((4, 4), dtype=np.float32)
+            cam_pose[:3, :3] = np.array(rot.to_matrix())
+            cam_pose[:3, 3] = pos
+            cam_pose[3, 3] = 1
             cam_pose = np.dot(np.array(cam_pose), coords_trans_matrix)
             cam_poses.append(cam_pose)
             fov_rad = c.data.angle
@@ -81,7 +90,7 @@ def get_caminfo(cameras, relax=1.05):
             Ks.append(K)
             Hs.append(H)
             Ws.append(W)
-    bpy.context.scene.frame_set(fc)
+            Ts.append((f - 0.5) / bpy.context.scene.render.fps)
     cam_poses = np.stack(cam_poses)
     cam_pose = pose_average(cam_poses)
     fovs = np.stack(fovs)
@@ -89,4 +98,4 @@ def get_caminfo(cameras, relax=1.05):
     fov = get_expanded_fov(cam_pose, cam_poses, fov)
     H = max(Hs)
     W = max(Ws)
-    return (cam_poses, Ks, Hs, Ws), cam_pose, fov, H, W, K
+    return (cam_poses, Ks, Hs, Ws, Ts), cam_pose, fov, H, W, K

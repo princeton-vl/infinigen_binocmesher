@@ -15,9 +15,12 @@ class Task:
 
 
 class Materials:
+    TreeCollection = "tree_collection"
+    CityCollection = "city_collection"
     GroundCollection = "ground_collection"
     MountainCollection = "mountain_collection"
     LiquidCollection = "liquid_collection"
+    CityWindow = "city_window"
     Eroded = "eroded"
     Lava = "lava"
     Snow = "snow"
@@ -25,10 +28,13 @@ class Materials:
     Clouds = "clouds"
     Beach = "beach"
     all = [
+        TreeCollection,
+        CityCollection,
         GroundCollection,
         MountainCollection,
-        Eroded,
         LiquidCollection,
+        CityWindow,
+        Eroded,
         Lava,
         Snow,
         Atmosphere,
@@ -95,6 +101,9 @@ class ElementNames:
     UpsidedownMountains = "upsidedown_mountains"
     Volcanos = "volcanos"
     FloatingIce = "floating_ice"
+    SdfTrees = "sdf_trees"
+    SdfCity = "sdf_city"
+    SdfCityWindow = "sdf_citywindow"
 
 
 class Tags:
@@ -126,7 +135,9 @@ class ElementTag:
     Volcanos = 6
     FloatingIce = 7
     UpsidedownMountains = 8
-    total_cnt = 9
+    SdfTrees = 9
+    SdfCity = 10
+    total_cnt = 11
     map = [
         ElementNames.Liquid,
         ElementNames.Clouds,
@@ -137,6 +148,8 @@ class ElementTag:
         ElementNames.Volcanos,
         ElementNames.FloatingIce,
         ElementNames.UpsidedownMountains,
+        ElementNames.SdfTrees,
+        ElementNames.SdfCity,
     ]
 
 

@@ -33,6 +33,8 @@ from infinigen.core.util.organization import (
 )
 from infinigen.OcMesher.ocmesher import OcMesher as UntexturedOcMesher
 from infinigen.OcMesher.ocmesher import __version__ as ocmesher_version
+from infinigen.BinocMesher.binocmesher import BinocMesher as UntexturedBinocMesher
+from infinigen.BinocMesher.binocmesher import __version__ as BinocMesher_version
 from infinigen.terrain.assets.ocean import ocean_asset
 from infinigen.terrain.mesher import (
     OpaqueSphericalMesher,
@@ -53,6 +55,7 @@ from infinigen.terrain.utils import (
 )
 
 assert ocmesher_version == "1.0"
+assert BinocMesher_version == "1.0"
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,38 @@ def get_surface_type(surface, degrade_sdf_to_displacement=True):
             return SurfaceTypes.Displacement
         return surface.type
 
+class BinocMesher(UntexturedBinocMesher):
+    def __init__(self, cameras, bounds, fs, fe, write_attribute_enabled, **kwargs):
+        UntexturedBinocMesher.__init__(self, get_caminfo(cameras, fs=fs, fe=fe)[0], bounds, **kwargs)
+        self.write_attribute_enabled = write_attribute_enabled
+
+    def __call__(self, kernels):
+        sdf_kernels = [(lambda x, k0=k: k0(x)[Vars.SDF]) for k in kernels]
+        meshes, in_view_tags = UntexturedBinocMesher.__call__(self, sdf_kernels)
+        with Timer("compute attributes"):
+            if self.write_attribute_enabled:
+                write_attributes(kernels, None, meshes)
+            for mesh, tag in zip(meshes, in_view_tags):
+                mesh.vertex_attributes[Tags.OutOfView] = (~tag).astype(np.int32)
+        with Timer("concat meshes"):
+            mesh = Mesh.cat(meshes)
+        return mesh
+
+class CollectiveBinocMesher(UntexturedBinocMesher):
+    def __init__(self, cameras, bounds, fs, fe, write_attribute_enabled, **kwargs):
+        UntexturedBinocMesher.__init__(self, get_caminfo(cameras, fs=fs, fe=fe)[0], bounds, **kwargs)
+        self.write_attribute_enabled = write_attribute_enabled
+
+    def __call__(self, kernels):
+        sdf_kernels = [lambda x: np.stack([k(x)[Vars.SDF] for k in kernels], -1).min(axis=-1)]
+        mesh, in_view_tag = UntexturedBinocMesher.__call__(self, sdf_kernels)
+        mesh = mesh[0]
+        with Timer("compute attributes"):
+            if self.write_attribute_enabled:
+                write_attributes(kernels, mesh, [])
+            mesh.vertex_attributes[Tags.OutOfView] = (~in_view_tag[0]).astype(np.int32)
+        mesh = Mesh(mesh=mesh)
+        return mesh
 
 class OcMesher(UntexturedOcMesher):
     def __init__(self, cameras, bounds, **kwargs):
@@ -124,6 +159,8 @@ class Terrain:
         whole_bbox=None,
         populated_bounds=(-75, 75, -75, 75, -25, 55),
         bounds=(-500, 500, -500, 500, -500, 500),
+        simplify_occluded_individual_transparent=False,
+        pixels_per_cube_individual_transparent=None,
     ):
         dll = load_cdll(
             str(
@@ -147,6 +184,8 @@ class Terrain:
         self.min_distance = min_distance
         self.populated_bounds = populated_bounds
         self.bounds = bounds
+        self.simplify_occluded_individual_transparent = simplify_occluded_individual_transparent
+        self.pixels_per_cube_individual_transparent = pixels_per_cube_individual_transparent
 
         if Terrain.instance is not None:
             self.__dict__ = Terrain.instance.__dict__.copy()
@@ -194,6 +233,7 @@ class Terrain:
             self.elements[e].height_offset = height_offset
             self.elements[e].whole_bbox = whole_bbox
 
+
     def __del__(self):
         self.cleanup()
 
@@ -202,12 +242,40 @@ class Terrain:
             for e in self.elements:
                 self.elements[e].cleanup()
 
-    def export(
+    def get_mesh_names(self):
+        names = []
+        opaque_elements = [
+            element
+            for element in self.elements_list
+            if element.transparency == Transparency.Opaque
+        ]
+        if opaque_elements != []:
+            names.append(TerrainNames.OpaqueTerrain)
+        individual_transparent_elements = [
+            element
+            for element in self.elements_list
+            if element.transparency == Transparency.IndividualTransparent
+        ]
+        for element in individual_transparent_elements:
+            names.append(element.__class__.name)
+        collective_transparent_elements = [
+            element
+            for element in self.elements_list
+            if element.transparency == Transparency.CollectiveTransparent
+        ]
+        if collective_transparent_elements != []:
+            names.append(TerrainNames.CollectiveTransparentTerrain)
+        return names
+
+    def mesh_extraction(
         self,
         mesher_backend="SphericalMesher",
         cameras=None,
         main_terrain_only=False,
         remove_redundant_attrs=True,
+        hypermesh_path=None,
+        fs=None, fe=None,
+        write_attribute_enabled=True,
     ):
         meshes_dict = {}
         attributes_dict = {}
@@ -222,7 +290,15 @@ class Terrain:
                 if mesher_backend == "SphericalMesher":
                     mesher = OpaqueSphericalMesher(cameras, self.bounds)
                 elif mesher_backend == "OcMesher":
-                        mesher = OcMesher(cameras, self.bounds)
+                    mesher = OcMesher(cameras, self.bounds)
+                elif mesher_backend == "BinocMesher":
+                    mesher = BinocMesher(
+                        cameras, self.bounds,
+                        path=hypermesh_path/TerrainNames.OpaqueTerrain,
+                        slicing_time=(bpy.context.scene.frame_current-0.5)/bpy.context.scene.render.fps,
+                        fs=fs, fe=fe,
+                        write_attribute_enabled=write_attribute_enabled,
+                    )
                 elif mesher_backend == "UniformMesher":
                     mesher = UniformMesher(self.populated_bounds)
                 else:
@@ -242,20 +318,42 @@ class Terrain:
         ]
         for element in individual_transparent_elements:
             if not main_terrain_only or element.__class__.name == self.main_terrain:
-                if mesher_backend in ["SphericalMesher", "OcMesher"]:
+                if mesher_backend in ["SphericalMesher", "OcMesher", "BinocMesher"]:
                     special_args = {}
                     if element.__class__.name == ElementNames.Atmosphere:
                         special_args["pixels_per_cube"] = 100
-                        special_args["inv_scale"] = 1
+                        if mesher_backend == "SphericalMesher":
+                            special_args["inv_scale"] = 1
+                        elif mesher_backend == "OcMesher":
+                            special_args["inv_scale"] = 1
+                        else:
+                            special_args["pixels_per_cube_coarse"] = 100
+                    else:
+                        if self.pixels_per_cube_individual_transparent is not None:
+                            special_args["pixels_per_cube"] = self.pixels_per_cube_individual_transparent
+                    if element.__class__.name in [ElementNames.Atmosphere, ElementNames.Liquid] and mesher_backend == "BinocMesher":
+                        special_args["fading_time"] = 1
+                    
                     if mesher_backend == "SphericalMesher":
                         mesher = TransparentSphericalMesher(
                             cameras, self.bounds, **special_args
                         )
-                    else:
+                    elif mesher_backend == "OcMesher":
                         mesher = OcMesher(
                             cameras,
                             self.bounds,
-                            simplify_occluded=False,
+                            **special_args,
+                        )
+                    else:
+                        mesher = BinocMesher(
+                            cameras,
+                            self.bounds,
+                            simplify_occluded=self.simplify_occluded_individual_transparent,
+                            enclosed=True,
+                            path=hypermesh_path/element.__class__.name,
+                            slicing_time=(bpy.context.scene.frame_current-0.5)/bpy.context.scene.render.fps,
+                            fs=fs, fe=fe,
+                            write_attribute_enabled=write_attribute_enabled,
                             **special_args,
                         )
                 elif mesher_backend == "UniformMesher":
@@ -282,7 +380,15 @@ class Terrain:
                     mesher = TransparentSphericalMesher(cameras, self.bounds)
                 elif mesher_backend == "OcMesher":
                     mesher = CollectiveOcMesher(
-                        cameras, self.bounds, simplify_occluded=False
+                        cameras, self.bounds,
+                    )
+                elif mesher_backend == "BinocMesher":
+                    mesher = CollectiveBinocMesher(
+                        cameras, self.bounds,
+                        path=hypermesh_path/TerrainNames.CollectiveTransparentTerrain,
+                        slicing_time=(bpy.context.scene.frame_current-0.5)/bpy.context.scene.render.fps,
+                        fs=fs, fe=fe,
+                        write_attribute_enabled=write_attribute_enabled,
                     )
                 elif mesher_backend == "UniformMesher":
                     mesher = UniformMesher(self.populated_bounds)
@@ -330,9 +436,9 @@ class Terrain:
                         )
 
         if cameras is not None:
-            if remove_redundant_attrs:
+            if remove_redundant_attrs and write_attribute_enabled:
                 for mesh_name in meshes_dict:
-                    if len(attributes_dict[mesh_name]) == 1:
+                    if len(attributes_dict[mesh_name]) == 1 and len(meshes_dict[mesh_name].vertices) > 0:
                         meshes_dict[mesh_name].vertex_attributes.pop(
                             list(attributes_dict[mesh_name])[0]
                         )
@@ -406,7 +512,7 @@ class Terrain:
 
     @gin.configurable
     def coarse_terrain(self):
-        coarse_meshes, attributes_dict = self.export(mesher_backend="UniformMesher")
+        coarse_meshes, attributes_dict = self.mesh_extraction(mesher_backend="UniformMesher")
         terrain_objs = {}
         for name in coarse_meshes:
             obj = coarse_meshes[name].export_blender(name)
@@ -419,7 +525,7 @@ class Terrain:
         self.surfaces_into_sdf()
 
         # do second time to avoid surface application difference resulting in floating rocks
-        coarse_meshes, _ = self.export(main_terrain_only=True, mesher_backend="UniformMesher")
+        coarse_meshes, _ = self.mesh_extraction(main_terrain_only=True, mesher_backend="UniformMesher")
         main_mesh = coarse_meshes[self.main_terrain]
 
         # WaterCovered annotation
@@ -447,10 +553,23 @@ class Terrain:
         return main_obj
 
     @gin.configurable
-    def fine_terrain(self, output_folder, cameras, optimize_terrain_diskusage=True, mesher_backend="SphericalMesher"):
+    def fine_terrain(
+        self, output_folder, cameras,
+        optimize_terrain_diskusage=True,
+        mesher_backend="SphericalMesher",
+        fs=None, fe=None,
+        write_attribute_enabled=True,
+    ):
+        mesher_config_path = output_folder / "mesher_backend.txt"
+        if not os.path.exists(mesher_config_path):
+            with open(mesher_config_path, "w") as f:
+                f.write(f"{mesher_backend}\n")
+                f.write(f"{bpy.context.scene.frame_start}\n")
+                f.write(f"{bpy.context.scene.frame_end}\n")
         # redo sampling to achieve attribute -> surface correspondance
         self.sample_surface_templates()
-        if (self.on_the_fly_asset_folder / Assets.Ocean).exists():
+
+        if (self.on_the_fly_asset_folder / Assets.Ocean).exists() and not (self.on_the_fly_asset_folder / Assets.Ocean / "finish").exists():
             with FixedSeed(int_hash(["Ocean", self.seed])):
                 ocean_asset(
                     output_folder / Assets.Ocean,
@@ -458,11 +577,18 @@ class Terrain:
                     bpy.context.scene.frame_end,
                     link_folder=self.on_the_fly_asset_folder / Assets.Ocean,
                 )
+            (self.on_the_fly_asset_folder / Assets.Ocean / "finish").touch()
         self.surfaces_into_sdf()
-        fine_meshes, _ = self.export(mesher_backend=mesher_backend, cameras=cameras)
+        fine_meshes, _ = self.mesh_extraction(
+            mesher_backend=mesher_backend,
+            cameras=cameras,
+            hypermesh_path=output_folder / "HyperMesh",
+            fs=fs, fe=fe,
+            write_attribute_enabled=write_attribute_enabled,
+        )
         for mesh_name in fine_meshes:
             obj = fine_meshes[mesh_name].export_blender(mesh_name + "_fine")
-            if mesh_name not in hidden_in_viewport:
+            if write_attribute_enabled and mesh_name not in hidden_in_viewport:
                 self.tag_terrain(obj)
             if not optimize_terrain_diskusage:
                 object_to_copy_from = bpy.data.objects[mesh_name]

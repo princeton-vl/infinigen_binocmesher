@@ -20,6 +20,9 @@ elements=(
     "landtiles"
     "atmosphere"
     "waterbody"
+    "sdf_trees"
+    "sdf_city"
+    "sdf_citywindow"
 )
 
 surfaces=(
@@ -37,7 +40,12 @@ surfaces=(
     "stone"
 )
 
-nvcc_location=/usr/local/cuda/bin/nvcc
+# Try cuda-12.8 first, then fall back to cuda
+if [ -x "/usr/local/cuda-12.8/bin/nvcc" ]; then
+    nvcc_location=/usr/local/cuda-12.8/bin/nvcc
+else
+    nvcc_location=/usr/local/cuda/bin/nvcc
+fi
 alias nx="$nvcc_location -O3 -Xcompiler -fPIC -shared "
 
 # cuda part
@@ -138,4 +146,8 @@ cd -
 
 cd ./infinigen/OcMesher
 source install.sh
+cd -
+
+cd ./infinigen/BinocMesher/binocmesher
+make
 cd -

@@ -1,3 +1,15 @@
+surface.registry.city_collection = [
+    ('stone', 1),
+]
+
+surface.registry.city_window = [
+    ('city_window', 1),
+]
+
+surface.registry.tree_collection = [
+    ('sdftree', 1),
+]
+
 surface.registry.ground_collection = [
     ('mud', 2),
     ('sand', 1),

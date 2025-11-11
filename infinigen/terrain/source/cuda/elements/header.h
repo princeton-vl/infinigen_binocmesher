@@ -26,4 +26,7 @@ using namespace std;
 #include "../../common/elements/mountains.h"
 #include "../../common/elements/waterbody.h"
 #include "../../common/elements/atmosphere.h"
+#include "../../common/elements/sdf_trees.h"
+#include "../../common/elements/sdf_city.h"
+#include "../../common/elements/sdf_citywindow.h"
 #include "core.cu"

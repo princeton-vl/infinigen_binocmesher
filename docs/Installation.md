@@ -68,6 +68,8 @@ conda activate infinigen
 Then, install the infinigen package using one of the options below:
 
 ```bash
+pip install bpy==3.6.0 --extra-index-url https://download.blender.org/pypi/
+
 # Minimal install (No terrain or opengl GT, ok for Infinigen-Indoors or single-object generation) 
 INFINIGEN_MINIMAL_INSTALL=True pip install -e .
 

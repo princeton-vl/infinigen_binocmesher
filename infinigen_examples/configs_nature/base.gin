@@ -66,7 +66,7 @@ get_sensor_coords.W = 1280
 
 min_terrain_distance = 2
 keep_cam_pose_proposal.min_terrain_distance = %min_terrain_distance
-SphericalMesher.r_min = %min_terrain_distance
+
 
 build_terrain_bvh_and_attrs.avoid_border = False # disabled due to crashes 5/15
 

@@ -68,12 +68,16 @@ class LandTiles(Element):
         use_cblerp=False,
         smooth=False,
         direction_deg=0,
+        assets_seed_override=None,
     ):
         self.device = device
         self.on_the_fly_asset_folder = on_the_fly_asset_folder
         self.reused_asset_folder = reused_asset_folder
         nonpython_seed = random_int()
-        self.assets_seed = random_int_large()
+        if assets_seed_override is not None:
+            self.assets_seed = assets_seed_override
+        else:
+            self.assets_seed = random_int_large()
         self.tiles = tiles
         self.attribute_modification_start_height = (
             attribute_modification_start_height
