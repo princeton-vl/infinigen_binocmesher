@@ -349,6 +349,7 @@ def render_image(
     excludes=[],
     use_dof=False,
     dof_aperture_fstop=2.8,
+    save_blend_file=None,
 ):
     tic = time.time()
 
@@ -403,6 +404,9 @@ def render_image(
     if render_resolution_override is not None:
         bpy.context.scene.render.resolution_x = render_resolution_override[0]
         bpy.context.scene.render.resolution_y = render_resolution_override[1]
+
+    if save_blend_file is not None:
+        bpy.ops.wm.save_mainfile(filepath=save_blend_file)
 
     # Render the scene
     bpy.context.scene.camera = camera
