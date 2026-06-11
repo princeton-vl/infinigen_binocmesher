@@ -257,6 +257,7 @@ def iterate_scene_tasks(
             for cam_frame in range(
                 view_frame_range[0], view_frame_range[1] + 1, cam_block_size
             ):
+                if cam_frame < render_frame_range[0] or cam_frame > render_frame_range[1]: continue
                 cam_frame_range = [
                     cam_frame,
                     min(view_frame_range[1], cam_frame + cam_block_size - 1),
